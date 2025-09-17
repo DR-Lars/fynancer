@@ -1,6 +1,85 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import {
+	S3Client,
+	PutObjectCommand,
+	ListObjectsV2Command,
+	GetObjectCommand
+} from '@aws-sdk/client-s3';
+import { parse } from 'csv-parse/sync';
+export const GET: RequestHandler = async () => {
+	// S3 config from environment variables
+	const s3 = new S3Client({
+		region: process.env.S3_REGION || 'eu-central-1',
+		endpoint: process.env.S3_ENDPOINT,
+		credentials: {
+			accessKeyId: process.env.S3_ACCESS_KEY || '',
+			secretAccessKey: process.env.S3_SECRET_KEY || ''
+		},
+		forcePathStyle: true
+	});
+
+	try {
+		// List all CSV files in the bucket
+		const listRes = await s3.send(
+			new ListObjectsV2Command({
+				Bucket: process.env.S3_BUCKET,
+				Prefix: ''
+			})
+		);
+		const csvFiles = (listRes.Contents || [])
+			.filter((obj) => obj.Key && obj.Key.endsWith('.csv'))
+			.sort((a, b) => (b.LastModified?.getTime() || 0) - (a.LastModified?.getTime() || 0));
+		if (!csvFiles.length) {
+			return new Response(JSON.stringify({ error: 'No CSV files found' }), { status: 404 });
+		}
+		const latestKey = csvFiles[0].Key;
+		// Get the latest CSV file
+		const getObj = await s3.send(
+			new GetObjectCommand({
+				Bucket: process.env.S3_BUCKET,
+				Key: latestKey
+			})
+		);
+		const stream = getObj.Body;
+		let csvString = '';
+		if (stream && typeof stream === 'object') {
+			if (typeof (stream as any)[Symbol.asyncIterator] === 'function') {
+				const chunks = [];
+				for await (const chunk of stream as any) {
+					chunks.push(chunk);
+				}
+				csvString = Buffer.concat(chunks).toString('utf-8');
+			} else if (typeof (stream as any).arrayBuffer === 'function') {
+				// Browser/edge: stream is a Blob or has arrayBuffer
+				const buf = Buffer.from(await (stream as any).arrayBuffer());
+				csvString = buf.toString('utf-8');
+			} else {
+				return new Response(JSON.stringify({ error: 'Unknown stream type' }), { status: 500 });
+			}
+		} else {
+			return new Response(JSON.stringify({ error: 'No stream returned from S3' }), { status: 500 });
+		}
+		// Parse CSV with semicolon delimiter
+		const records = parse(csvString, { columns: true, delimiter: ';' }) as Record<string, any>[];
+		// Only keep relevant columns (case-insensitive match)
+		const wanted = ['booking date', 'amount', 'currency', 'description'];
+		const filtered = records.map((row) => {
+			const out: Record<string, any> = {};
+			for (const key of Object.keys(row)) {
+				const lower = key.trim().toLowerCase();
+				if (wanted.includes(lower)) {
+					out[key] = row[key];
+				}
+			}
+			return out;
+		});
+		return json({ data: filtered });
+	} catch (err) {
+		console.error('S3 fetch error:', err);
+		return new Response(JSON.stringify({ error: 'Failed to fetch CSV from S3' }), { status: 500 });
+	}
+};
 import 'dotenv/config';
 
 export const POST: RequestHandler = async ({ request }) => {
@@ -17,15 +96,8 @@ export const POST: RequestHandler = async ({ request }) => {
 		return new Response(JSON.stringify({ error: 'Only .csv files are allowed' }), { status: 400 });
 	}
 
-	// Use today's date and time as the file name (YYYY-MM-DD_HH-MM-SS.csv)
-	const today = new Date();
-	const yyyy = today.getFullYear();
-	const mm = String(today.getMonth() + 1).padStart(2, '0');
-	const dd = String(today.getDate()).padStart(2, '0');
-	const hh = String(today.getHours()).padStart(2, '0');
-	const min = String(today.getMinutes()).padStart(2, '0');
-	const ss = String(today.getSeconds()).padStart(2, '0');
-	const fileName = `${yyyy}-${mm}-${dd}_${hh}-${min}-${ss}.csv`;
+	// Use the filename provided by the client (with account number and date)
+	const fileName = file.name;
 
 	// Read file as Buffer
 	const arrayBuffer = await file.arrayBuffer();
