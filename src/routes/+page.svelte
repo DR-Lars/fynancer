@@ -89,14 +89,23 @@
 				{#each csvHeaders as header}
 					<th>{header}</th>
 				{/each}
+				<th>Action</th>
 			</tr>
 		</thead>
 		<tbody>
-			{#each csvData as row}
+			{#each csvData as row, i}
 				<tr>
 					{#each csvHeaders as header}
 						<td style="padding-left:1em; padding-right:1em;">{row[header]}</td>
 					{/each}
+					<td style="padding-left:1em; padding-right:1em;">
+						<select>
+							<option value="">No category</option>
+							<option value="option1">Salary</option>
+							<option value="option2">Gasoline</option>
+							<option value="option3">Insurance</option>
+						</select>
+					</td>
 				</tr>
 			{/each}
 		</tbody>
