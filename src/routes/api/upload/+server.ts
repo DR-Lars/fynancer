@@ -4,7 +4,8 @@ import {
 	S3Client,
 	PutObjectCommand,
 	ListObjectsV2Command,
-	GetObjectCommand
+	GetObjectCommand,
+	DeleteObjectCommand
 } from '@aws-sdk/client-s3';
 import { parse } from 'csv-parse/sync';
 export const GET: RequestHandler = async () => {
@@ -85,6 +86,50 @@ import 'dotenv/config';
 export const POST: RequestHandler = async ({ request }) => {
 	const formData = await request.formData();
 	const file = formData.get('file');
+
+	let accountNumberPrefix = '';
+	if (file && typeof file !== 'string' && file.name) {
+		const newFileName = file.name;
+		const accountNumberMatch = newFileName.match(/^([A-Za-z0-9]+)_/);
+		accountNumberPrefix = accountNumberMatch ? accountNumberMatch[1] : '';
+	}
+
+	// Delete only CSV files with the same account number prefix as the new file
+	if (accountNumberPrefix) {
+		try {
+			const s3List = new S3Client({
+				region: process.env.S3_REGION || 'eu-central-1',
+				endpoint: process.env.S3_ENDPOINT,
+				credentials: {
+					accessKeyId: process.env.S3_ACCESS_KEY || '',
+					secretAccessKey: process.env.S3_SECRET_KEY || ''
+				},
+				forcePathStyle: true
+			});
+			const listRes = await s3List.send(
+				new ListObjectsV2Command({
+					Bucket: process.env.S3_BUCKET,
+					Prefix: ''
+				})
+			);
+			const csvFiles = (listRes.Contents || []).filter(
+				(obj) => obj.Key && obj.Key.endsWith('.csv')
+			);
+			for (const fileObj of csvFiles) {
+				if (fileObj.Key && fileObj.Key.startsWith(accountNumberPrefix + '_')) {
+					await s3List.send(
+						new DeleteObjectCommand({
+							Bucket: process.env.S3_BUCKET,
+							Key: fileObj.Key
+						})
+					);
+				}
+			}
+		} catch (err) {
+			console.error('S3 delete error:', err);
+			// Continue even if delete fails
+		}
+	}
 
 	if (!file || typeof file === 'string') {
 		return new Response(JSON.stringify({ error: 'No file uploaded' }), { status: 400 });
