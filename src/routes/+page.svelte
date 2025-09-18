@@ -1,9 +1,68 @@
 <script lang="ts">
+	import Papa from 'papaparse';
 	import { onMount } from 'svelte';
+	import { parse } from 'csv-parse/browser/esm/sync';
 	let uploadMessage = '';
 	let fileInput: HTMLInputElement;
 	let csvData: any[] = [];
 	let csvHeaders: string[] = [];
+	let previewData: any[] = [];
+	let previewHeaders: string[] = [];
+	let actionSelections: string[] = [];
+	let extractedAccountNumber = '';
+
+	function syncActionSelections() {
+		if (previewData.length > actionSelections.length) {
+			actionSelections = [
+				...actionSelections,
+				...Array(previewData.length - actionSelections.length).fill('')
+			];
+		} else if (previewData.length < actionSelections.length) {
+			actionSelections = actionSelections.slice(0, previewData.length);
+		}
+	}
+	// Preview CSV before upload
+	async function handleFileChange(event: Event) {
+		const input = event.target as HTMLInputElement;
+		const file = input?.files?.[0];
+		if (!file || !isCSVFile(file)) {
+			previewData = [];
+			previewHeaders = [];
+			return;
+		}
+		const text = await file.text();
+		// Extract account number from the second row of the original CSV
+		const lines = text.split(/\r?\n/).filter(Boolean);
+		extractedAccountNumber = '';
+		if (lines.length >= 2) {
+			const secondRow = lines[1].split(';');
+			extractedAccountNumber = secondRow[0]?.replace(/[^\dA-Za-z]/g, '') || '';
+		}
+		// Parse CSV with semicolon delimiter
+		let records: any[] = [];
+		try {
+			records = parse(text, { columns: true, delimiter: ';' }) as Record<string, any>[];
+		} catch (e) {
+			previewData = [];
+			previewHeaders = [];
+			return;
+		}
+		// Only keep relevant columns (case-insensitive match)
+		const wanted = ['booking date', 'amount', 'currency', 'description'];
+		const filtered = records.map((row) => {
+			const out: Record<string, any> = {};
+			for (const key of Object.keys(row)) {
+				const lower = key.trim().toLowerCase();
+				if (wanted.includes(lower)) {
+					out[key] = row[key];
+				}
+			}
+			return out;
+		});
+		previewData = filtered;
+		previewHeaders = filtered.length > 0 ? Object.keys(filtered[0]) : [];
+		syncActionSelections();
+	}
 
 	function isCSVFile(file: File) {
 		return file.name.toLowerCase().endsWith('.csv');
@@ -19,14 +78,19 @@
 		}
 
 		// Read the account number from the second row of the CSV file
-		const text = await file.text();
-		const lines = text.split(/\r?\n/).filter(Boolean);
-		let accountNumber = '';
-		if (lines.length >= 2) {
-			// Try to extract the first value from the second row (assuming ; delimiter)
-			const secondRow = lines[1].split(';');
-			accountNumber = secondRow[0]?.replace(/[^\dA-Za-z]/g, '');
-		}
+		// Use previewData and previewHeaders to create a new CSV file for upload
+		// Extract account number from the first row if available
+		// Use the extracted account number from file preview
+		const accountNumber = extractedAccountNumber;
+
+		// Add account number and action columns to data before CSV export
+		const exportHeaders = [...previewHeaders, 'Account Number', 'Action'];
+		const exportData = previewData.map((row, i) => ({
+			...row,
+			'Account Number': accountNumber,
+			Action: actionSelections[i] || ''
+		}));
+		const csvString = Papa.unparse(exportData, { delimiter: ';', columns: exportHeaders });
 
 		// Create a new file with the new name: accountnumber_date.csv
 		const today = new Date();
@@ -37,7 +101,7 @@
 		const min = String(today.getMinutes()).padStart(2, '0');
 		const ss = String(today.getSeconds()).padStart(2, '0');
 		const newFileName = `${accountNumber ? accountNumber + '_' : ''}${yyyy}-${mm}-${dd}_${hh}-${min}-${ss}.csv`;
-		const newFile = new File([file], newFileName, { type: file.type });
+		const newFile = new File([csvString], newFileName, { type: file.type });
 
 		const formData = new FormData();
 		formData.append('file', newFile);
@@ -73,7 +137,14 @@
 <h1>Welcome to Fynance</h1>
 
 <form method="POST" enctype="multipart/form-data" on:submit={handleFileUpload}>
-	<input type="file" name="file" required bind:this={fileInput} accept=".csv" />
+	<input
+		type="file"
+		name="file"
+		required
+		bind:this={fileInput}
+		accept=".csv"
+		on:change={handleFileChange}
+	/>
 	<button type="submit">Upload</button>
 </form>
 
@@ -81,7 +152,36 @@
 	<p>{uploadMessage}</p>
 {/if}
 
-{#if csvData.length > 0}
+{#if previewData.length > 0}
+	<h2>Preview CSV Data</h2>
+	<table border="1" style="margin-top:1em;">
+		<thead>
+			<tr>
+				{#each previewHeaders as header}
+					<th>{header}</th>
+				{/each}
+				<th>Action</th>
+			</tr>
+		</thead>
+		<tbody>
+			{#each previewData as row, i}
+				<tr>
+					{#each previewHeaders as header}
+						<td style="padding-left:1em; padding-right:1em;">{row[header]}</td>
+					{/each}
+					<td style="padding-left:1em; padding-right:1em;">
+						<select bind:value={actionSelections[i]} on:change={syncActionSelections}>
+							<option value="">Select...</option>
+							<option value="option1">Option 1</option>
+							<option value="option2">Option 2</option>
+							<option value="option3">Option 3</option>
+						</select>
+					</td>
+				</tr>
+			{/each}
+		</tbody>
+	</table>
+{:else if csvData.length > 0}
 	<h2>Latest CSV Data</h2>
 	<table border="1" style="margin-top:1em;">
 		<thead>
