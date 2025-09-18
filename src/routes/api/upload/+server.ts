@@ -65,18 +65,20 @@ export const GET: RequestHandler = async () => {
 		}
 		// Parse CSV with semicolon delimiter
 		const records = parse(csvString, { columns: true, delimiter: ';' }) as Record<string, any>[];
-		// Map alternate column names to 'Datum', 'amount', 'currency', 'description'
+		// Map alternate column names to 'Date', 'Amount', 'Currency', 'Description'
 		const columnMap: Record<string, string> = {
 			datum: 'Date',
 			uitvoeringsdatum: 'Date',
 			'booking date': 'Date',
+			date: 'Date',
 			bedrag: 'Amount',
 			amount: 'Amount',
 			'valuta rekening': 'Currency',
 			valuta: 'Currency',
 			currency: 'Currency',
 			mededeling: 'Description',
-			description: 'Description'
+			description: 'Description',
+			category: 'Category'
 		};
 		const wanted = ['Date', 'Amount', 'Currency', 'Description'];
 		const filtered = records.map((row) => {
