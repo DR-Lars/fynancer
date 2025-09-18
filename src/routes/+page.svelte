@@ -8,17 +8,17 @@
 	let csvHeaders: string[] = [];
 	let previewData: any[] = [];
 	let previewHeaders: string[] = [];
-	let actionSelections: string[] = [];
+	let categorySelections: string[] = [];
 	let extractedAccountNumber = '';
 
-	function syncActionSelections() {
-		if (previewData.length > actionSelections.length) {
-			actionSelections = [
-				...actionSelections,
-				...Array(previewData.length - actionSelections.length).fill('')
+	function syncCategorySelections() {
+		if (previewData.length > categorySelections.length) {
+			categorySelections = [
+				...categorySelections,
+				...Array(previewData.length - categorySelections.length).fill('')
 			];
-		} else if (previewData.length < actionSelections.length) {
-			actionSelections = actionSelections.slice(0, previewData.length);
+		} else if (previewData.length < categorySelections.length) {
+			categorySelections = categorySelections.slice(0, previewData.length);
 		}
 	}
 	// Preview CSV before upload
@@ -56,9 +56,10 @@
 			'booking date': 'Date',
 			amount: 'Amount',
 			currency: 'Currency',
-			description: 'Description'
+			description: 'Description',
+			category: 'Category'
 		};
-		const wanted = ['Date', 'Amount', 'Currency', 'Description'];
+		const wanted = ['Date', 'Amount', 'Currency', 'Description', 'Category'];
 		const filtered = records.map((row) => {
 			const out: Record<string, any> = {};
 			for (const key of Object.keys(row)) {
@@ -72,7 +73,7 @@
 		});
 		previewData = filtered;
 		previewHeaders = wanted.filter((h) => filtered.some((row) => row[h] !== undefined));
-		syncActionSelections();
+		syncCategorySelections();
 	}
 
 	function isCSVFile(file: File) {
@@ -94,12 +95,12 @@
 		// Use the extracted account number from file preview
 		const accountNumber = extractedAccountNumber;
 
-		// Add account number and action columns to data before CSV export
-		const exportHeaders = [...previewHeaders, 'Account Number', 'Action'];
+		// Add account number and category columns to data before CSV export
+		const exportHeaders = [...previewHeaders, 'Account Number', 'Category'];
 		const exportData = previewData.map((row, i) => ({
 			...row,
 			'Account Number': accountNumber,
-			Action: actionSelections[i] || ''
+			Category: categorySelections[i] || ''
 		}));
 		const csvString = Papa.unparse(exportData, { delimiter: ';', columns: exportHeaders });
 
@@ -143,6 +144,55 @@
 	}
 
 	onMount(fetchCSV);
+
+	// Upload currently displayed table (preview or latest) to server
+	async function uploadDisplayedTable() {
+		const isPreview = previewData.length > 0;
+		const dataToUpload = isPreview ? previewData : csvData;
+		if (!dataToUpload || dataToUpload.length === 0) {
+			uploadMessage = 'No data to upload.';
+			return;
+		}
+
+		const accountNumber = extractedAccountNumber || '';
+		const headers = isPreview ? previewHeaders : csvHeaders;
+		const exportHeaders = [...headers, 'Account Number', 'Category'];
+		const exportData = dataToUpload.map((row, i) => {
+			const category = isPreview ? categorySelections[i] || '' : row.Category || '';
+			return {
+				...row,
+				'Account Number': accountNumber,
+				Category: category
+			};
+		});
+
+		const csvString = Papa.unparse(exportData, { delimiter: ';', columns: exportHeaders });
+		const today = new Date();
+		const yyyy = today.getFullYear();
+		const mm = String(today.getMonth() + 1).padStart(2, '0');
+		const dd = String(today.getDate()).padStart(2, '0');
+		const hh = String(today.getHours()).padStart(2, '0');
+		const min = String(today.getMinutes()).padStart(2, '0');
+		const ss = String(today.getSeconds()).padStart(2, '0');
+		const fileName = `${extractedAccountNumber ? extractedAccountNumber + '_' : ''}${yyyy}-${mm}-${dd}_${hh}-${min}-${ss}.csv`;
+		const file = new File([csvString], fileName, { type: 'text/csv' });
+
+		const formData = new FormData();
+		formData.append('file', file);
+
+		try {
+			const res = await fetch('/api/upload', { method: 'POST', body: formData });
+			if (res.ok) {
+				uploadMessage = 'Displayed table uploaded successfully.';
+				await fetchCSV();
+			} else {
+				const data = await res.json().catch(() => ({}));
+				uploadMessage = data?.error || 'Upload failed.';
+			}
+		} catch (err) {
+			uploadMessage = 'Upload error: ' + String(err);
+		}
+	}
 </script>
 
 <h1>Welcome to Fynance</h1>
@@ -159,6 +209,8 @@
 	<button type="submit">Upload</button>
 </form>
 
+<button on:click={uploadDisplayedTable} style="margin-left:1em;">Upload displayed table</button>
+
 {#if uploadMessage}
 	<p>{uploadMessage}</p>
 {/if}
@@ -171,7 +223,7 @@
 				{#each previewData.length > 0 ? previewHeaders : csvHeaders as header}
 					<th>{header}</th>
 				{/each}
-				<th>Category</th>
+				<th>Change category</th>
 			</tr>
 		</thead>
 		<tbody>
@@ -181,12 +233,27 @@
 						<td style="padding-left:1em; padding-right:1em;">{row[header]}</td>
 					{/each}
 					<td style="padding-left:1em; padding-right:1em;">
-						<select>
-							<option value="">No category</option>
-							<option value="option1">Salary</option>
-							<option value="option2">Gasoline</option>
-							<option value="option3">Insurance</option>
-						</select>
+						{#if previewData.length > 0}
+							<select bind:value={categorySelections[i]} on:change={syncCategorySelections}>
+								<option value="">No category</option>
+								<option value="Salary">Salary</option>
+								<option value="Gasoline">Gasoline</option>
+								<option value="Insurance">Insurance</option>
+							</select>
+						{:else}
+							<!-- Viewing latest CSV from server: bind to the row's Category property so changes persist in-memory -->
+							<select
+								bind:value={row.Category}
+								on:change={() => {
+									/* reactive update */
+								}}
+							>
+								<option value="">No category</option>
+								<option value="Salary">Salary</option>
+								<option value="Gasoline">Gasoline</option>
+								<option value="Insurance">Insurance</option>
+							</select>
+						{/if}
 					</td>
 				</tr>
 			{/each}

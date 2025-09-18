@@ -80,7 +80,7 @@ export const GET: RequestHandler = async () => {
 			description: 'Description',
 			category: 'Category'
 		};
-		const wanted = ['Date', 'Amount', 'Currency', 'Description'];
+		const wanted = ['Date', 'Amount', 'Currency', 'Description', 'Category'];
 		const filtered = records.map((row) => {
 			const out: Record<string, any> = {};
 			for (const key of Object.keys(row)) {
