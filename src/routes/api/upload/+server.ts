@@ -8,6 +8,8 @@ import {
 	DeleteObjectCommand
 } from '@aws-sdk/client-s3';
 import { parse } from 'csv-parse/sync';
+import 'dotenv/config';
+
 export const GET: RequestHandler = async () => {
 	// S3 config from environment variables
 	const s3 = new S3Client({
@@ -63,14 +65,27 @@ export const GET: RequestHandler = async () => {
 		}
 		// Parse CSV with semicolon delimiter
 		const records = parse(csvString, { columns: true, delimiter: ';' }) as Record<string, any>[];
-		// Only keep relevant columns (case-insensitive match)
-		const wanted = ['booking date', 'amount', 'currency', 'description'];
+		// Map alternate column names to 'Datum', 'amount', 'currency', 'description'
+		const columnMap: Record<string, string> = {
+			datum: 'Date',
+			uitvoeringsdatum: 'Date',
+			'booking date': 'Date',
+			bedrag: 'Amount',
+			amount: 'Amount',
+			'valuta rekening': 'Currency',
+			valuta: 'Currency',
+			currency: 'Currency',
+			mededeling: 'Description',
+			description: 'Description'
+		};
+		const wanted = ['Date', 'Amount', 'Currency', 'Description'];
 		const filtered = records.map((row) => {
 			const out: Record<string, any> = {};
 			for (const key of Object.keys(row)) {
 				const lower = key.trim().toLowerCase();
-				if (wanted.includes(lower)) {
-					out[key] = row[key];
+				const mapped = columnMap[lower];
+				if (mapped && wanted.includes(mapped)) {
+					out[mapped] = row[key];
 				}
 			}
 			return out;
@@ -81,7 +96,6 @@ export const GET: RequestHandler = async () => {
 		return new Response(JSON.stringify({ error: 'Failed to fetch CSV from S3' }), { status: 500 });
 	}
 };
-import 'dotenv/config';
 
 export const POST: RequestHandler = async ({ request }) => {
 	const formData = await request.formData();

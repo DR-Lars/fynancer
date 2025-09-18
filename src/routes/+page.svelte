@@ -47,20 +47,31 @@
 			previewHeaders = [];
 			return;
 		}
-		// Only keep relevant columns (case-insensitive match)
-		const wanted = ['booking date', 'amount', 'currency', 'description'];
+		// Map alternate column names to standard keys
+		const columnMap: Record<string, string> = {
+			uitvoeringsdatum: 'Date',
+			bedrag: 'Amount',
+			'valuta rekening': 'Currency',
+			mededeling: 'Description',
+			'booking date': 'Date',
+			amount: 'Amount',
+			currency: 'Currency',
+			description: 'Description'
+		};
+		const wanted = ['Date', 'Amount', 'Currency', 'Description'];
 		const filtered = records.map((row) => {
 			const out: Record<string, any> = {};
 			for (const key of Object.keys(row)) {
 				const lower = key.trim().toLowerCase();
-				if (wanted.includes(lower)) {
-					out[key] = row[key];
+				const mapped = columnMap[lower];
+				if (mapped && wanted.includes(mapped)) {
+					out[mapped] = row[key];
 				}
 			}
 			return out;
 		});
 		previewData = filtered;
-		previewHeaders = filtered.length > 0 ? Object.keys(filtered[0]) : [];
+		previewHeaders = wanted.filter((h) => filtered.some((row) => row[h] !== undefined));
 		syncActionSelections();
 	}
 
@@ -152,50 +163,21 @@
 	<p>{uploadMessage}</p>
 {/if}
 
-{#if previewData.length > 0}
-	<h2>Preview CSV Data</h2>
+{#if previewData.length > 0 || csvData.length > 0}
+	<h2>{previewData.length > 0 ? 'Preview Data' : 'Latest Data'}</h2>
 	<table border="1" style="margin-top:1em;">
 		<thead>
 			<tr>
-				{#each previewHeaders as header}
+				{#each previewData.length > 0 ? previewHeaders : csvHeaders as header}
 					<th>{header}</th>
 				{/each}
-				<th>Action</th>
+				<th>Category</th>
 			</tr>
 		</thead>
 		<tbody>
-			{#each previewData as row, i}
+			{#each previewData.length > 0 ? previewData : csvData as row, i}
 				<tr>
-					{#each previewHeaders as header}
-						<td style="padding-left:1em; padding-right:1em;">{row[header]}</td>
-					{/each}
-					<td style="padding-left:1em; padding-right:1em;">
-						<select bind:value={actionSelections[i]} on:change={syncActionSelections}>
-							<option value="">Select...</option>
-							<option value="option1">Option 1</option>
-							<option value="option2">Option 2</option>
-							<option value="option3">Option 3</option>
-						</select>
-					</td>
-				</tr>
-			{/each}
-		</tbody>
-	</table>
-{:else if csvData.length > 0}
-	<h2>Latest CSV Data</h2>
-	<table border="1" style="margin-top:1em;">
-		<thead>
-			<tr>
-				{#each csvHeaders as header}
-					<th>{header}</th>
-				{/each}
-				<th>Action</th>
-			</tr>
-		</thead>
-		<tbody>
-			{#each csvData as row, i}
-				<tr>
-					{#each csvHeaders as header}
+					{#each previewData.length > 0 ? previewHeaders : csvHeaders as header}
 						<td style="padding-left:1em; padding-right:1em;">{row[header]}</td>
 					{/each}
 					<td style="padding-left:1em; padding-right:1em;">
