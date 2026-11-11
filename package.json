@@ -33,7 +33,7 @@
 		"vite": "^7.0.4"
 	},
 	"dependencies": {
-		"@aws-sdk/client-s3": "^3.891.0",
+		"@aws-sdk/client-s3": "^3.1166.0",
 		"buffer": "^6.0.3",
 		"csv-parse": "^6.1.0",
 		"csv-stringify": "^6.6.0",
